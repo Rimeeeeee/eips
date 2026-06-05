@@ -891,7 +891,7 @@ mod tests {
     }
 
     #[test]
-    fn bal_hash_includes_account_storage_roots() {
+    fn bal_hash_ignores_account_storage_roots() {
         let root_0 = b256!("0xe6f36e519f6bb156d8634280bda7d1488b6e8af221964c32f79a1a8188688a5e");
         let root_1 = b256!("0xf23e0f20f7f3051dffe85288732967785e280d16850fe62ae22bb662a4380e73");
         let bal = Bal::new(vec![
@@ -926,7 +926,7 @@ mod tests {
         );
         assert_eq!(
             bal.compute_hash(),
-            b256!("0xfddce9faa92e20d1fb14e7ffa997ef974813737d8d7499398a34c4f5ba25bba3")
+            b256!("0xe9a74193eb02c91a51a7fd7833fb10da84b19635775fe4be8f1d59f0afcf4948")
         );
     }
 }

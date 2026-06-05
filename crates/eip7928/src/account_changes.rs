@@ -281,11 +281,6 @@ impl alloy_rlp::Encodable for AccountChanges {
         self.balance_changes.encode(out);
         self.nonce_changes.encode(out);
         self.code_changes.encode(out);
-        if self.has_state_changes()
-            && let Some(storage_root) = self.storage_root
-        {
-            storage_root.encode(out);
-        }
     }
 
     fn length(&self) -> usize {
@@ -297,18 +292,12 @@ impl alloy_rlp::Encodable for AccountChanges {
 #[cfg(feature = "rlp")]
 impl AccountChanges {
     fn rlp_payload_length(&self) -> usize {
-        let mut payload_length = self.address.length()
+        self.address.length()
             + self.storage_changes.length()
             + self.storage_reads.length()
             + self.balance_changes.length()
             + self.nonce_changes.length()
-            + self.code_changes.length();
-        if self.has_state_changes()
-            && let Some(storage_root) = self.storage_root
-        {
-            payload_length += storage_root.length();
-        }
-        payload_length
+            + self.code_changes.length()
     }
 }
 
@@ -323,8 +312,12 @@ impl alloy_rlp::Decodable for AccountChanges {
             balance_changes: Vec::<BalanceChange>::decode(&mut payload)?,
             nonce_changes: Vec::<NonceChange>::decode(&mut payload)?,
             code_changes: Vec::<CodeChange>::decode(&mut payload)?,
-            storage_root: if payload.is_empty() { None } else { Some(B256::decode(&mut payload)?) },
+            storage_root: None,
         };
+
+        if !payload.is_empty() {
+            let _ignored_storage_root = B256::decode(&mut payload)?;
+        }
 
         if !payload.is_empty() {
             return Err(alloy_rlp::Error::UnexpectedLength);
@@ -698,7 +691,7 @@ mod rlp_tests {
     }
 
     #[test]
-    fn rlp_round_trips_storage_root_for_changed_account() {
+    fn rlp_omits_storage_root_for_changed_account() {
         let storage_root = B256::from([0xbb; 32]);
         let account = AccountChanges::new(Address::from([0x11; 20]))
             .with_balance_change(BalanceChange::new(BlockAccessIndex::new(1), U256::from(1)))
@@ -712,8 +705,34 @@ mod rlp_tests {
         };
         let decoded = alloy_rlp::decode_exact::<AccountChanges>(&encoded).unwrap();
 
-        assert_eq!(fields.len(), 7);
-        assert_eq!(decoded.storage_root(), Some(storage_root));
+        assert_eq!(fields.len(), 6);
+        assert_eq!(decoded.storage_root(), None);
+        assert!(decoded.has_state_changes());
+    }
+
+    #[test]
+    fn rlp_decode_ignores_trailing_storage_root() {
+        let storage_root = B256::from([0xcc; 32]);
+        let account = AccountChanges::new(Address::from([0x11; 20]))
+            .with_balance_change(BalanceChange::new(BlockAccessIndex::new(1), U256::from(1)));
+
+        let mut encoded = Vec::new();
+        alloy_rlp::Header {
+            list: true,
+            payload_length: account.rlp_payload_length() + storage_root.length(),
+        }
+        .encode(&mut encoded);
+        account.address.encode(&mut encoded);
+        account.storage_changes.encode(&mut encoded);
+        account.storage_reads.encode(&mut encoded);
+        account.balance_changes.encode(&mut encoded);
+        account.nonce_changes.encode(&mut encoded);
+        account.code_changes.encode(&mut encoded);
+        storage_root.encode(&mut encoded);
+
+        let decoded = alloy_rlp::decode_exact::<AccountChanges>(&encoded).unwrap();
+
+        assert_eq!(decoded.storage_root(), None);
         assert!(decoded.has_state_changes());
     }
 }
