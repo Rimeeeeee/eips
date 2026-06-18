@@ -207,7 +207,7 @@ impl WarmAccessMultiset {
 
     /// Returns an iterator over all tracked items and their refcounts.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = (&WamItem, u32)> + FusedIterator + '_ {
+    pub fn iter(&self) -> impl FusedIterator<Item = (&WamItem, u32)> + '_ {
         self.counts.iter().map(|(item, count)| (item, *count))
     }
 
