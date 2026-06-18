@@ -1,0 +1,47 @@
+[package]
+name = "alloy-eip8289"
+description = "Implementation of EIP-8289 warm-access multiset helpers"
+
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+    "-Zunstable-options",
+    "--generate-link-to-definition",
+    "--show-type-layout",
+]
+
+[lints]
+workspace = true
+
+[dependencies]
+alloy-eip7928 = { path = "../eip7928", default-features = false }
+alloy-primitives = { workspace = true, features = ["map"] }
+
+# serde
+serde = { workspace = true, optional = true }
+
+# borsh
+borsh = { workspace = true, optional = true, features = ["derive"] }
+
+# arbitrary
+arbitrary = { workspace = true, features = ["derive"], optional = true }
+
+[features]
+default = ["std"]
+std = [
+    "alloy-eip7928/std",
+    "alloy-primitives/std",
+    "serde?/std",
+    "borsh?/std",
+]
+serde = ["dep:serde", "alloy-eip7928/serde", "alloy-primitives/serde"]
+borsh = ["dep:borsh", "alloy-eip7928/borsh", "alloy-primitives/borsh"]
+arbitrary = ["std", "dep:arbitrary", "alloy-eip7928/arbitrary", "alloy-primitives/arbitrary"]
