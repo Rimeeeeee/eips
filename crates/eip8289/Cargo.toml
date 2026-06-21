@@ -35,6 +35,9 @@ borsh = { workspace = true, optional = true, features = ["derive"] }
 # arbitrary
 arbitrary = { workspace = true, features = ["derive"], optional = true }
 
+[dev-dependencies]
+criterion = "0.7"
+
 [features]
 default = ["std"]
 std = [
@@ -46,3 +49,7 @@ std = [
 serde = ["dep:serde", "alloy-eip7928/serde", "alloy-primitives/serde"]
 borsh = ["dep:borsh", "alloy-eip7928/borsh", "alloy-primitives/borsh"]
 arbitrary = ["std", "dep:arbitrary", "alloy-eip7928/arbitrary", "alloy-primitives/arbitrary"]
+
+[[bench]]
+name = "smt"
+harness = false
