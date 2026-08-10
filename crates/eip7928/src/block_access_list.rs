@@ -19,30 +19,12 @@ pub fn compute_block_access_list_hash(bal: &[AccountChanges]) -> alloy_primitive
     alloy_primitives::keccak256(&buf)
 }
 
-/// Computes the total number of items in the block access list, counting each account and unique
-/// storage slot.
+/// Computes the total number of items in the block access list, counting each account and storage
+/// entry.
 pub fn total_bal_items(bal: &[AccountChanges]) -> u64 {
-    let mut bal_items: u64 = 0;
-
-    for account in bal {
-        // Count address
-        bal_items += 1;
-
-        // Collect unique storage slots across reads + writes
-        let mut unique_slots = alloy_primitives::map::HashSet::new();
-
-        for change in account.storage_changes() {
-            unique_slots.insert(change.slot);
-        }
-
-        for slot in account.storage_reads() {
-            unique_slots.insert(*slot);
-        }
-
-        // Count unique storage keys
-        bal_items += unique_slots.len() as u64;
-    }
-    bal_items
+    bal.iter()
+        .map(|account| 1 + account.storage_changes().len() + account.storage_reads().len())
+        .sum::<usize>() as u64
 }
 
 /// Block-Level Access List wrapper type with helper methods for metrics and validation.
@@ -53,7 +35,7 @@ pub mod bal {
         diff::BalDiff,
     };
     use alloc::vec::{IntoIter, Vec};
-    use alloy_primitives::{B256, Bytes};
+    use alloy_primitives::{B256, Bytes, map::HashMap};
     use core::{
         ops::{Deref, Index},
         slice::Iter,
@@ -153,6 +135,38 @@ pub mod bal {
         #[inline]
         pub fn push(&mut self, account_changes: AccountChanges) {
             self.0.push(account_changes)
+        }
+
+        /// Merges the provided account changes into this block access list.
+        ///
+        /// Duplicate account entries already present in this BAL or provided by `incoming` are
+        /// folded into the first entry for that account using [`AccountChanges::merge`]. Changes
+        /// for accounts not already present are appended as new entries.
+        ///
+        /// This preserves relative ordering by keeping existing account entries in place and
+        /// appending newly seen accounts. Call [`Self::sort`] after merging if canonical EIP-7928
+        /// ordering is required.
+        pub fn merge<I>(&mut self, incoming: I)
+        where
+            I: IntoIterator<Item = AccountChanges>,
+        {
+            let existing_accounts = core::mem::take(&mut self.0);
+            let mut merged_accounts = Vec::<AccountChanges>::with_capacity(existing_accounts.len());
+            let mut account_positions = HashMap::<_, usize>::with_capacity_and_hasher(
+                existing_accounts.len(),
+                Default::default(),
+            );
+
+            for account_changes in existing_accounts.into_iter().chain(incoming) {
+                if let Some(&idx) = account_positions.get(&account_changes.address) {
+                    merged_accounts[idx].merge(account_changes);
+                } else {
+                    account_positions.insert(account_changes.address, merged_accounts.len());
+                    merged_accounts.push(account_changes);
+                }
+            }
+
+            self.0 = merged_accounts;
         }
 
         /// Returns `true` if the list contains no elements.
@@ -961,6 +975,7 @@ mod hash_tests {
         AccountChanges, BalanceChange, BlockAccessIndex, CodeChange, NonceChange, SlotChanges,
         StorageChange, constants::ITEM_COST,
     };
+    use alloc::vec::Vec;
     use alloy_primitives::{Address, B256, Bytes, U256};
 
     #[test]
@@ -1234,6 +1249,95 @@ mod hash_tests {
     }
 
     #[test]
+    fn bal_merge_combines_duplicate_accounts_and_appends_new_accounts() {
+        let existing_address = Address::from([0x11; 20]);
+        let new_address = Address::from([0x22; 20]);
+        let mut bal = Bal::new(vec![
+            AccountChanges {
+                address: existing_address,
+                storage_changes: vec![SlotChanges::new(
+                    U256::from(1),
+                    vec![StorageChange::new(BlockAccessIndex::new(0), U256::from(10))],
+                )],
+                storage_reads: vec![U256::from(2)],
+                balance_changes: vec![BalanceChange::new(
+                    BlockAccessIndex::new(1),
+                    U256::from(100),
+                )],
+                nonce_changes: vec![],
+                code_changes: vec![],
+            },
+            AccountChanges::new(existing_address).with_code_change(CodeChange::new(
+                BlockAccessIndex::new(5),
+                Bytes::from_static(&[0xbb]),
+            )),
+        ]);
+
+        bal.merge([
+            AccountChanges {
+                address: existing_address,
+                storage_changes: vec![SlotChanges::new(
+                    U256::from(2),
+                    vec![StorageChange::new(BlockAccessIndex::new(2), U256::from(20))],
+                )],
+                storage_reads: vec![U256::from(1), U256::from(3), U256::from(3)],
+                balance_changes: vec![BalanceChange::new(
+                    BlockAccessIndex::new(3),
+                    U256::from(200),
+                )],
+                nonce_changes: vec![],
+                code_changes: vec![],
+            },
+            AccountChanges::new(new_address)
+                .with_nonce_change(NonceChange::new(BlockAccessIndex::new(4), 7)),
+        ]);
+
+        assert_eq!(bal.len(), 2);
+        assert_eq!(bal[0].address, existing_address);
+        assert_eq!(bal[1].address, new_address);
+        assert_eq!(
+            bal[0].storage_changes.iter().map(|changes| changes.slot).collect::<Vec<_>>(),
+            vec![U256::from(1), U256::from(2)]
+        );
+        assert_eq!(bal[0].storage_reads, vec![U256::from(3)]);
+        assert_eq!(
+            bal[0]
+                .balance_changes
+                .iter()
+                .map(|change| change.block_access_index)
+                .collect::<Vec<_>>(),
+            vec![BlockAccessIndex::new(1), BlockAccessIndex::new(3)]
+        );
+        assert_eq!(
+            bal[0].code_changes,
+            vec![CodeChange::new(BlockAccessIndex::new(5), Bytes::from_static(&[0xbb]))]
+        );
+        assert_eq!(bal[1].nonce_changes, vec![NonceChange::new(BlockAccessIndex::new(4), 7)]);
+    }
+
+    #[test]
+    fn bal_merge_collapses_duplicate_accounts_from_incoming_iterator() {
+        let address = Address::from([0x11; 20]);
+        let mut bal = Bal::default();
+
+        bal.merge([
+            AccountChanges::new(address)
+                .with_balance_change(BalanceChange::new(BlockAccessIndex::new(0), U256::from(100))),
+            AccountChanges::new(address).with_code_change(CodeChange::new(
+                BlockAccessIndex::new(1),
+                Bytes::from_static(&[0xaa]),
+            )),
+        ]);
+
+        assert_eq!(bal.len(), 1);
+        assert_eq!(bal[0].balance_changes.len(), 1);
+        assert_eq!(
+            bal[0].code_changes,
+            vec![CodeChange::new(BlockAccessIndex::new(1), Bytes::from_static(&[0xaa]))]
+        );
+    }
+
+    #[test]
     fn bal_sort_orders_all_eip7928_lists() {
         let address_1 = Address::from([0x11; 20]);
         let address_2 = Address::from([0x22; 20]);
@@ -1348,13 +1452,27 @@ mod hash_tests {
             AccountChanges::new(Address::from([0x11; 20]))
                 .with_storage_read(U256::from(1))
                 .with_storage_change(SlotChanges::new(
+                    U256::from(2),
+                    vec![StorageChange::new(BlockAccessIndex::new(0), U256::from(0xaa))],
+                )),
+        ]);
+
+        assert_eq!(bal.total_bal_items(), 3);
+        assert_eq!(bal.validate_gas_limit(3 * ITEM_COST as u64), Ok(()));
+    }
+
+    #[test]
+    fn bal_total_items_counts_storage_entries_without_deduplicating() {
+        let bal = Bal::new(vec![
+            AccountChanges::new(Address::from([0x11; 20]))
+                .with_storage_read(U256::from(1))
+                .with_storage_change(SlotChanges::new(
                     U256::from(1),
                     vec![StorageChange::new(BlockAccessIndex::new(0), U256::from(0xaa))],
                 )),
         ]);
 
-        assert_eq!(bal.total_bal_items(), 2);
-        assert_eq!(bal.validate_gas_limit(2 * ITEM_COST as u64), Ok(()));
+        assert_eq!(bal.total_bal_items(), 3);
     }
 
     #[test]
