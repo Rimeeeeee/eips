@@ -33,7 +33,7 @@ pub const FRAME_TX_TOTAL_COST_FLOOR_PER_TOKEN: u64 = 16;
 pub const ENTRY_POINT: Address = Address::new(hex!("00000000000000000000000000000000000000aa"));
 
 /// Address of the canonical expiry verifier.
-pub const EXPIRY_VERIFIER: Address = Address::new(hex!("0000000000000000000000000000000000008141"));
+pub const EXPIRY_VERIFIER: Address = Address::new(hex!("81413f0cf12e9b6a49b1d0439e081c577d57ffff"));
 
 /// Calldata length, in bytes, for expiry verifier frames.
 pub const EXPIRY_DATA_LENGTH: usize = 8;
@@ -42,9 +42,9 @@ pub const EXPIRY_DATA_LENGTH: usize = 8;
 pub const MAX_FRAMES: usize = 64;
 
 /// Address of the EIP-8250 protocol-managed keyed nonce storage account.
-pub const NONCE_MANAGER: Address = Address::new(hex!("0000000000000000000000000000000000008250"));
+pub const NONCE_MANAGER: Address = Address::new(hex!("8250968c12e01a19d6f667b9b2f3b3a4d0e51cb7"));
 
-/// Canonical runtime bytecode installed at [`NONCE_MANAGER`].
+/// Runtime bytecode of the ordinary contract deployed at [`NONCE_MANAGER`].
 pub const NONCE_MANAGER_CODE: [u8; 5] = hex!("60006000fd");
 
 /// State gas charged when a keyed nonce storage slot is created for the first time.
