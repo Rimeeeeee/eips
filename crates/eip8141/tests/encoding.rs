@@ -261,3 +261,79 @@ fn typed_fields_roundtrip_borsh() {
         }
     }
 }
+
+#[test]
+fn frame_gas_decode_errors_identify_the_dimension() {
+    let too_large = U256::from(u64::MAX) + U256::from(1);
+    for (fields, reason) in [
+        (
+            vec![too_large, U256::ZERO],
+            "invalid EIP-8141 frame format: execution gas exceeds 64 bits",
+        ),
+        (vec![U256::ZERO, too_large], "invalid EIP-8141 frame format: state gas exceeds 64 bits"),
+    ] {
+        let encoded = alloy_rlp::encode(fields);
+        assert_eq!(
+            FrameLimits::decode(&mut encoded.as_slice()),
+            Err(alloy_rlp::Error::Custom(reason))
+        );
+    }
+    roundtrip(FrameLimits { execution: u64::MAX, state: u64::MAX });
+}
+
+#[test]
+fn fee_decode_errors_identify_the_field() {
+    let mut too_large = vec![0; 33];
+    too_large[0] = 1;
+    for (index, reason) in [
+        "EIP-8141 max priority fee per gas exceeds 256 bits",
+        "EIP-8141 max fee per gas exceeds 256 bits",
+        "EIP-8141 max fee per blob gas exceeds 256 bits",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut fields = vec![Bytes::new(); 3];
+        fields[index] = Bytes::copy_from_slice(&too_large);
+        let encoded = alloy_rlp::encode(fields);
+        assert_eq!(
+            TransactionFees::decode(&mut encoded.as_slice()),
+            Err(alloy_rlp::Error::Custom(reason))
+        );
+    }
+}
+
+#[test]
+fn bounded_fields_preserve_rlp_canonicality_and_list_boundaries() {
+    for input in [
+        hex!("80").as_slice(),
+        hex!("c0").as_slice(),
+        hex!("c180").as_slice(),
+        hex!("c3808080").as_slice(),
+    ] {
+        assert!(FrameLimits::decode(&mut &*input).is_err());
+    }
+    // Noncanonical integer errors must not become field-bound errors.
+    assert_eq!(
+        FrameLimits::decode(&mut hex!("c382000180").as_slice()),
+        Err(alloy_rlp::Error::LeadingZero)
+    );
+    assert_eq!(
+        TransactionFees::decode(&mut hex!("c48200018080").as_slice()),
+        Err(alloy_rlp::Error::LeadingZero)
+    );
+    for input in [
+        hex!("80").as_slice(),
+        hex!("c0").as_slice(),
+        hex!("c28080").as_slice(),
+        hex!("c480808080").as_slice(),
+    ] {
+        assert!(TransactionFees::decode(&mut &*input).is_err());
+    }
+    let mut encoded = alloy_rlp::encode(FrameLimits { execution: 1, state: 2 });
+    encoded.extend_from_slice(&alloy_rlp::encode(TransactionFees::default()));
+    let mut input = encoded.as_slice();
+    assert_eq!(FrameLimits::decode(&mut input), Ok(FrameLimits { execution: 1, state: 2 }));
+    assert_eq!(TransactionFees::decode(&mut input), Ok(TransactionFees::default()));
+    assert!(input.is_empty());
+}

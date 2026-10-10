@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, Bytes, U256};
-use alloy_rlp::{RlpDecodable, RlpEncodable};
+use alloy_rlp::{Decodable, Header, RlpDecodable, RlpEncodable};
 
 use crate::FrameAddress;
 
@@ -122,7 +122,7 @@ impl ApprovalScope {
 impl_u8_discriminant!(ApprovalScope, InvalidScope);
 
 /// The independent execution and state gas budgets carried by an EIP-8141 frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable, RlpDecodable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -134,6 +134,30 @@ pub struct FrameLimits {
     /// Maximum state gas available to the frame.
     #[cfg_attr(feature = "serde", serde(with = "crate::serde_utils::quantity"))]
     pub state: u64,
+}
+
+impl Decodable for FrameLimits {
+    fn decode(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
+        let mut fields = Header::decode_bytes(buf, true)?;
+        let payload_length = fields.len();
+        let limits = Self {
+            execution: decode_bounded_integer(
+                &mut fields,
+                "invalid EIP-8141 frame format: execution gas exceeds 64 bits",
+            )?,
+            state: decode_bounded_integer(
+                &mut fields,
+                "invalid EIP-8141 frame format: state gas exceeds 64 bits",
+            )?,
+        };
+        if !fields.is_empty() {
+            return Err(alloy_rlp::Error::ListLengthMismatch {
+                expected: payload_length,
+                got: payload_length - fields.len(),
+            });
+        }
+        Ok(limits)
+    }
 }
 
 /// A single EIP-8141 transaction frame.
@@ -243,7 +267,7 @@ pub fn has_valid_post_tx_suffix(frames: &[Frame]) -> bool {
 }
 
 /// Fee parameters carried by an EIP-8141 transaction.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable, RlpDecodable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -255,6 +279,44 @@ pub struct TransactionFees {
     pub max_fee_per_gas: U256,
     /// Maximum fee per blob gas.
     pub max_fee_per_blob_gas: U256,
+}
+
+impl Decodable for TransactionFees {
+    fn decode(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
+        let mut fields = Header::decode_bytes(buf, true)?;
+        let payload_length = fields.len();
+        let fees = Self {
+            max_priority_fee_per_gas: decode_bounded_integer(
+                &mut fields,
+                "EIP-8141 max priority fee per gas exceeds 256 bits",
+            )?,
+            max_fee_per_gas: decode_bounded_integer(
+                &mut fields,
+                "EIP-8141 max fee per gas exceeds 256 bits",
+            )?,
+            max_fee_per_blob_gas: decode_bounded_integer(
+                &mut fields,
+                "EIP-8141 max fee per blob gas exceeds 256 bits",
+            )?,
+        };
+        if !fields.is_empty() {
+            return Err(alloy_rlp::Error::ListLengthMismatch {
+                expected: payload_length,
+                got: payload_length - fields.len(),
+            });
+        }
+        Ok(fees)
+    }
+}
+
+fn decode_bounded_integer<T: Decodable>(
+    buf: &mut &[u8],
+    exceeds_bound: &'static str,
+) -> alloy_rlp::Result<T> {
+    T::decode(buf).map_err(|err| match err {
+        alloy_rlp::Error::Overflow => alloy_rlp::Error::Custom(exceeds_bound),
+        other => other,
+    })
 }
 
 #[cfg(test)]
@@ -319,7 +381,7 @@ mod tests {
 
         assert!(has_valid_post_tx_suffix(&[]));
         assert!(has_valid_post_tx_suffix(&[ordinary.clone(), post_tx.clone(), post_tx.clone()]));
-        assert!(has_valid_post_tx_suffix(&[post_tx.clone()]));
+        assert!(has_valid_post_tx_suffix(core::slice::from_ref(&post_tx)));
         assert!(!has_valid_post_tx_suffix(&[post_tx.clone(), ordinary.clone()]));
         assert!(!has_valid_post_tx_suffix(&[ordinary, post_tx, Frame::default()]));
     }
