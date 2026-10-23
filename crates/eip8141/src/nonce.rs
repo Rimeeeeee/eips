@@ -8,11 +8,8 @@ use crate::MAX_NONCE_KEYS;
 
 /// Validates the canonical set of nonce keys, including the legacy singleton `[0]`.
 pub fn validate_nonce_keys(keys: &[U256]) -> Result<(), &'static str> {
-    if keys.is_empty() || keys.len() > MAX_NONCE_KEYS {
-        return Err("EIP-8250 requires between 1 and 16 nonce keys");
-    }
-    if keys.len() > 1 && keys[0].is_zero() {
-        return Err("EIP-8250 nonce key zero must be the only key");
+    if keys.len() > MAX_NONCE_KEYS {
+        return Err("EIP-8250 requires at most 16 nonce keys");
     }
     if keys.windows(2).any(|pair| pair[0] >= pair[1]) {
         return Err("EIP-8250 nonce keys must be strictly increasing");
@@ -47,7 +44,9 @@ pub fn nonce_keys_hash(keys: &[U256]) -> B256 {
 pub fn nonce_calldata(keys: &[U256], nonce: u64) -> Vec<u8> {
     let mut encoded = Vec::new();
     alloy_rlp::encode_list(keys, &mut encoded);
-    nonce.encode(&mut encoded);
+    if keys.is_empty() || nonce != crate::MAX_NONCE_SEQ {
+        nonce.encode(&mut encoded);
+    }
     encoded
 }
 
@@ -58,12 +57,11 @@ mod tests {
 
     #[test]
     fn canonical_nonce_sets() {
-        for keys in [vec![U256::ZERO], vec![U256::MAX], (1..=16).map(U256::from).collect()] {
+        for keys in [vec![], vec![U256::ZERO], vec![U256::MAX], (1..=16).map(U256::from).collect()]
+        {
             assert!(validate_nonce_keys(&keys).is_ok());
         }
         for keys in [
-            vec![],
-            vec![U256::ZERO, U256::from(1)],
             vec![U256::from(1), U256::from(1)],
             vec![U256::from(2), U256::from(1)],
             vec![U256::from(1), U256::ZERO],
@@ -99,9 +97,6 @@ mod tests {
             nonce_calldata(&[U256::from(1), U256::from(128)], 128),
             [0xc3, 0x01, 0x81, 0x80, 0x81, 0x80]
         );
-        assert_eq!(
-            nonce_calldata(&[U256::from(1)], u64::MAX),
-            [0xc1, 0x01, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
-        );
+        assert_eq!(nonce_calldata(&[U256::from(1)], u64::MAX), [0xc1, 0x01]);
     }
 }

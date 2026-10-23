@@ -50,7 +50,7 @@ pub const NONCE_MANAGER_CODE: [u8; 5] = hex!("60006000fd");
 /// State gas charged when a keyed nonce storage slot is created for the first time.
 pub const KEYED_NONCE_FIRST_USE_STATE_GAS: u64 = 97_920;
 
-/// Execution gas charged per non-zero nonce key under EIP-8250.
+/// Execution gas charged per nonce key under EIP-8250.
 ///
 /// EIP-8038's cold storage access (2,100) plus storage write (10,000), charged
 /// in both intrinsic gas and the calldata floor, independently of first-use state gas.

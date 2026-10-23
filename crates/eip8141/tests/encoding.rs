@@ -44,11 +44,7 @@ fn rlp_fixtures() {
         SignatureMessage::Explicit(B256::repeat_byte(0x33)),
         Bytes::from(vec![0xa5; P256_SIGNATURE_LENGTH]),
     ));
-    roundtrip(TransactionFees {
-        max_priority_fee_per_gas: U256::MAX,
-        max_fee_per_gas: U256::MAX,
-        max_fee_per_blob_gas: U256::MAX,
-    });
+    roundtrip(TransactionFees { max_priority_fee_per_gas: U256::MAX, max_fee: U256::MAX });
 }
 
 #[test]
@@ -106,7 +102,7 @@ fn invalid_discriminants_and_noncanonical_rlp() {
         assert!(FrameStatus::decode(&mut &*input).is_err());
         assert!(SignatureScheme::decode(&mut &*input).is_err());
     }
-    assert_eq!(FrameMode::try_from(3), Ok(FrameMode::PostTx));
+    assert_eq!(FrameMode::try_from(3), Ok(FrameMode::Assert));
     assert_eq!(FrameMode::try_from(4), Err(Eip8141Error::InvalidMode(4)));
     assert!(FrameStatus::decode(&mut &[3u8][..]).is_err());
     assert!(SignatureScheme::decode(&mut &[3u8][..]).is_err());
@@ -285,15 +281,12 @@ fn frame_gas_decode_errors_identify_the_dimension() {
 fn fee_decode_errors_identify_the_field() {
     let mut too_large = vec![0; 33];
     too_large[0] = 1;
-    for (index, reason) in [
-        "EIP-8141 max priority fee per gas exceeds 256 bits",
-        "EIP-8141 max fee per gas exceeds 256 bits",
-        "EIP-8141 max fee per blob gas exceeds 256 bits",
-    ]
-    .into_iter()
-    .enumerate()
+    for (index, reason) in
+        ["EIP-8141 max fee exceeds 256 bits", "EIP-8141 max priority fee per gas exceeds 256 bits"]
+            .into_iter()
+            .enumerate()
     {
-        let mut fields = vec![Bytes::new(); 3];
+        let mut fields = vec![Bytes::new(); 2];
         fields[index] = Bytes::copy_from_slice(&too_large);
         let encoded = alloy_rlp::encode(fields);
         assert_eq!(
@@ -325,7 +318,7 @@ fn bounded_fields_preserve_rlp_canonicality_and_list_boundaries() {
     for input in [
         hex!("80").as_slice(),
         hex!("c0").as_slice(),
-        hex!("c28080").as_slice(),
+        hex!("c180").as_slice(),
         hex!("c480808080").as_slice(),
     ] {
         assert!(TransactionFees::decode(&mut &*input).is_err());
@@ -336,4 +329,10 @@ fn bounded_fields_preserve_rlp_canonicality_and_list_boundaries() {
     assert_eq!(FrameLimits::decode(&mut input), Ok(FrameLimits { execution: 1, state: 2 }));
     assert_eq!(TransactionFees::decode(&mut input), Ok(TransactionFees::default()));
     assert!(input.is_empty());
+}
+
+#[test]
+fn fee_budget_precedes_priority_fee_in_the_wire_encoding() {
+    let fees = TransactionFees { max_fee: U256::from(1), max_priority_fee_per_gas: U256::from(2) };
+    assert_eq!(alloy_rlp::encode(fees), hex!("c20102"));
 }

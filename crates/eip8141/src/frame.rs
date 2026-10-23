@@ -18,7 +18,7 @@ pub enum FrameMode {
     /// Execute as the transaction sender.
     Sender = 2,
     /// Execute a read-only assertion after the transaction body.
-    PostTx = 3,
+    Assert = 3,
 }
 
 impl FrameMode {
@@ -38,8 +38,8 @@ impl FrameMode {
     }
 
     /// Returns true if this is an EIP-7906 post-transaction assertion frame.
-    pub const fn is_post_tx(self) -> bool {
-        matches!(self, Self::PostTx)
+    pub const fn is_assertion(self) -> bool {
+        matches!(self, Self::Assert)
     }
 
     /// Attempts to convert a raw mode byte into a [`FrameMode`].
@@ -48,7 +48,7 @@ impl FrameMode {
             0 => Some(Self::Default),
             1 => Some(Self::Verify),
             2 => Some(Self::Sender),
-            3 => Some(Self::PostTx),
+            3 => Some(Self::Assert),
             _ => None,
         }
     }
@@ -221,8 +221,8 @@ impl Frame {
     }
 
     /// Returns true if this is an EIP-7906 post-transaction assertion frame.
-    pub const fn is_post_tx(&self) -> bool {
-        self.mode.is_post_tx()
+    pub const fn is_assertion(&self) -> bool {
+        self.mode.is_assertion()
     }
 
     /// Returns true if any reserved flag bit is set, which makes the transaction invalid.
@@ -247,18 +247,18 @@ impl Frame {
     }
 }
 
-/// Returns true if `POST_TX` frames form a contiguous trailing suffix.
+/// Returns true if `ASSERT` frames form a contiguous trailing suffix.
 ///
 /// EIP-7906 permits any number of EIP-8141 frames before the suffix, including no
-/// `POST_TX` frames at all. Once a `POST_TX` frame occurs, every following frame must also be
-/// `POST_TX`.
-pub fn has_valid_post_tx_suffix(frames: &[Frame]) -> bool {
-    let mut saw_post_tx = false;
+/// `ASSERT` frames at all. Once a `ASSERT` frame occurs, every following frame must also be
+/// `ASSERT`.
+pub fn has_valid_assertion_suffix(frames: &[Frame]) -> bool {
+    let mut saw_assertion = false;
 
     for frame in frames {
-        if frame.is_post_tx() {
-            saw_post_tx = true;
-        } else if saw_post_tx {
+        if frame.is_assertion() {
+            saw_assertion = true;
+        } else if saw_assertion {
             return false;
         }
     }
@@ -273,12 +273,10 @@ pub fn has_valid_post_tx_suffix(frames: &[Frame]) -> bool {
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "borsh", derive(borsh::BorshSerialize, borsh::BorshDeserialize))]
 pub struct TransactionFees {
+    /// Maximum total fee in wei across execution, state, and blob gas.
+    pub max_fee: U256,
     /// Maximum priority fee per gas.
     pub max_priority_fee_per_gas: U256,
-    /// Maximum total fee per gas.
-    pub max_fee_per_gas: U256,
-    /// Maximum fee per blob gas.
-    pub max_fee_per_blob_gas: U256,
 }
 
 impl Decodable for TransactionFees {
@@ -286,17 +284,10 @@ impl Decodable for TransactionFees {
         let mut fields = Header::decode_bytes(buf, true)?;
         let payload_length = fields.len();
         let fees = Self {
+            max_fee: decode_bounded_integer(&mut fields, "EIP-8141 max fee exceeds 256 bits")?,
             max_priority_fee_per_gas: decode_bounded_integer(
                 &mut fields,
                 "EIP-8141 max priority fee per gas exceeds 256 bits",
-            )?,
-            max_fee_per_gas: decode_bounded_integer(
-                &mut fields,
-                "EIP-8141 max fee per gas exceeds 256 bits",
-            )?,
-            max_fee_per_blob_gas: decode_bounded_integer(
-                &mut fields,
-                "EIP-8141 max fee per blob gas exceeds 256 bits",
             )?,
         };
         if !fields.is_empty() {
@@ -321,7 +312,7 @@ fn decode_bounded_integer<T: Decodable>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Frame, FrameMode, has_valid_post_tx_suffix};
+    use super::{Frame, FrameMode, has_valid_assertion_suffix};
     use alloy_primitives::{Bytes, U256};
     use alloy_rlp::{Decodable, Encodable};
 
@@ -362,27 +353,31 @@ mod tests {
     }
 
     #[test]
-    fn post_tx_mode_encodes_as_eip7906_value() {
-        assert_eq!(u8::from(FrameMode::PostTx), 3);
-        assert_eq!(FrameMode::try_from_u8(3), Some(FrameMode::PostTx));
-        assert!(FrameMode::PostTx.is_post_tx());
-        assert!(!FrameMode::Sender.is_post_tx());
+    fn assertion_mode_encodes_as_eip7906_value() {
+        assert_eq!(u8::from(FrameMode::Assert), 3);
+        assert_eq!(FrameMode::try_from_u8(3), Some(FrameMode::Assert));
+        assert!(FrameMode::Assert.is_assertion());
+        assert!(!FrameMode::Sender.is_assertion());
 
         let mut encoded = Vec::new();
-        FrameMode::PostTx.encode(&mut encoded);
+        FrameMode::Assert.encode(&mut encoded);
         assert_eq!(encoded, [3]);
-        assert_eq!(FrameMode::decode(&mut encoded.as_slice()), Ok(FrameMode::PostTx));
+        assert_eq!(FrameMode::decode(&mut encoded.as_slice()), Ok(FrameMode::Assert));
     }
 
     #[test]
-    fn post_tx_frames_must_be_a_trailing_suffix() {
-        let post_tx = Frame { mode: FrameMode::PostTx, ..Default::default() };
+    fn assertion_frames_must_be_a_trailing_suffix() {
+        let assertion = Frame { mode: FrameMode::Assert, ..Default::default() };
         let ordinary = Frame::default();
 
-        assert!(has_valid_post_tx_suffix(&[]));
-        assert!(has_valid_post_tx_suffix(&[ordinary.clone(), post_tx.clone(), post_tx.clone()]));
-        assert!(has_valid_post_tx_suffix(core::slice::from_ref(&post_tx)));
-        assert!(!has_valid_post_tx_suffix(&[post_tx.clone(), ordinary.clone()]));
-        assert!(!has_valid_post_tx_suffix(&[ordinary, post_tx, Frame::default()]));
+        assert!(has_valid_assertion_suffix(&[]));
+        assert!(has_valid_assertion_suffix(&[
+            ordinary.clone(),
+            assertion.clone(),
+            assertion.clone()
+        ]));
+        assert!(has_valid_assertion_suffix(core::slice::from_ref(&assertion)));
+        assert!(!has_valid_assertion_suffix(&[assertion.clone(), ordinary.clone()]));
+        assert!(!has_valid_assertion_suffix(&[ordinary, assertion, Frame::default()]));
     }
 }
