@@ -32,7 +32,7 @@ pub const FRAME_TX_TOTAL_COST_FLOOR_PER_TOKEN: u64 = 16;
 /// Protocol entry point caller used by `DEFAULT` and `VERIFY` frames.
 pub const ENTRY_POINT: Address = Address::new(hex!("00000000000000000000000000000000000000aa"));
 
-/// Address of the canonical expiry verifier.
+/// Address of the canonical expiry verifier, deployed as an ordinary contract.
 pub const EXPIRY_VERIFIER: Address = Address::new(hex!("81413f0cf12e9b6a49b1d0439e081c577d57ffff"));
 
 /// Calldata length, in bytes, for expiry verifier frames.

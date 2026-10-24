@@ -6,7 +6,7 @@ use alloy_rlp::Encodable;
 
 use crate::MAX_NONCE_KEYS;
 
-/// Validates the canonical set of nonce keys, including the legacy singleton `[0]`.
+/// Validates the canonical set of nonce keys, where an empty set selects the legacy account nonce.
 pub fn validate_nonce_keys(keys: &[U256]) -> Result<(), &'static str> {
     if keys.len() > MAX_NONCE_KEYS {
         return Err("EIP-8250 requires at most 16 nonce keys");
@@ -17,7 +17,7 @@ pub fn validate_nonce_keys(keys: &[U256]) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Returns the storage slot for a sender's nonzero nonce key.
+/// Returns the storage slot for a sender's nonce key.
 pub fn nonce_slot(sender: Address, key: U256) -> U256 {
     let mut input = [0u8; 64];
     input[12..32].copy_from_slice(sender.as_slice());

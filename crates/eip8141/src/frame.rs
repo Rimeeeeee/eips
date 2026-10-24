@@ -18,6 +18,11 @@ pub enum FrameMode {
     /// Execute as the transaction sender.
     Sender = 2,
     /// Execute a read-only assertion after the transaction body.
+    ///
+    /// This mode is defined by [EIP-7906] and is only valid where that EIP is active. Decoding
+    /// accepts it unconditionally, so callers must reject it otherwise.
+    ///
+    /// [EIP-7906]: https://eips.ethereum.org/EIPS/eip-7906
     Assert = 3,
 }
 
@@ -250,7 +255,7 @@ impl Frame {
 /// Returns true if `ASSERT` frames form a contiguous trailing suffix.
 ///
 /// EIP-7906 permits any number of EIP-8141 frames before the suffix, including no
-/// `ASSERT` frames at all. Once a `ASSERT` frame occurs, every following frame must also be
+/// `ASSERT` frames at all. Once an `ASSERT` frame occurs, every following frame must also be
 /// `ASSERT`.
 pub fn has_valid_assertion_suffix(frames: &[Frame]) -> bool {
     let mut saw_assertion = false;
@@ -313,7 +318,7 @@ fn decode_bounded_integer<T: Decodable>(
 #[cfg(test)]
 mod tests {
     use super::{Frame, FrameMode, has_valid_assertion_suffix};
-    use alloy_primitives::{Bytes, U256};
+    use alloy_primitives::{Bytes, U256, address};
     use alloy_rlp::{Decodable, Encodable};
 
     #[test]
@@ -336,6 +341,19 @@ mod tests {
             data: Bytes::from(vec![0; crate::EXPIRY_DATA_LENGTH]),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn expiry_verifier_uses_deployed_contract_address() {
+        let mut frame = Frame {
+            mode: FrameMode::Verify,
+            target: address!("81413f0cF12e9b6a49B1D0439E081c577D57FfFf").into(),
+            ..Default::default()
+        };
+        assert!(frame.is_expiry_verifier());
+
+        frame.target = address!("0000000000000000000000000000000000008141").into();
+        assert!(!frame.is_expiry_verifier());
     }
 
     #[test]

@@ -1,5 +1,5 @@
-//! [EIP-8141] frame transaction constants and types, including the [EIP-8250] keyed nonce
-//! extension.
+//! [EIP-8141] frame transaction constants and types, including the [EIP-7906] `ASSERT`
+//! frame mode.
 //!
 //! Targets, signers, and signed messages are typed: [`FrameAddress`] distinguishes an omitted
 //! address from an explicit one and [`SignatureMessage`] distinguishes the canonical transaction
@@ -26,8 +26,8 @@
 //! # Ok::<(), alloy_eip8141::Eip8141Error>(())
 //! ```
 //!
+//! [EIP-7906]: https://eips.ethereum.org/EIPS/eip-7906
 //! [EIP-8141]: https://eips.ethereum.org/EIPS/eip-8141
-//! [EIP-8250]: https://eips.ethereum.org/EIPS/eip-8250
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[allow(unused_imports)]
@@ -39,6 +39,9 @@ mod macros;
 
 mod address;
 pub use address::FrameAddress;
+
+mod calldata;
+pub use calldata::calldata_tokens;
 
 mod error;
 pub use error::Eip8141Error;
