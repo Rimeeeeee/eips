@@ -124,10 +124,13 @@ impl AccountChanges {
         self.nonce_changes.last().map(|change| change.new_nonce)
     }
 
-    /// Returns the code from the last recorded change, or `None` if unchanged.
+    /// Returns supplied code bytes from the last change, or `None` if unchanged or adopted by hash.
     #[inline]
     pub fn code_post_state(&self) -> Option<&Bytes> {
-        self.code_changes.last().map(CodeChange::new_code)
+        self.code_changes
+            .last()
+            .filter(|change| change.new_code_hash().is_none())
+            .map(CodeChange::new_code)
     }
 
     /// Returns the hash of the code from the last recorded change, or `None` if unchanged.
@@ -140,13 +143,16 @@ impl AccountChanges {
     }
 
     /// Returns the code from the last recorded change together with its hash, or `None` if
-    /// unchanged.
+    /// unchanged or the code was adopted by hash.
     ///
     /// Use this over hashing [`Self::code_post_state`] separately when both the code and its hash
     /// are needed, for example when storing the deployed bytecode by hash.
     #[inline]
     pub fn code_post_state_with_hash(&self) -> Option<(B256, &Bytes)> {
-        self.code_changes.last().map(|change| (change.code_hash(), change.new_code()))
+        self.code_changes
+            .last()
+            .filter(|change| change.new_code_hash().is_none())
+            .map(|change| (change.code_hash(), change.new_code()))
     }
 
     /// Returns the account-level fields this entry changed, see [`BalAccountInfo`].
@@ -705,6 +711,26 @@ mod post_state_tests {
             ))
             .with_code_change(CodeChange::new(BlockAccessIndex::new(1), code.clone()));
 
+        assert_eq!(account.code_hash_post_state(), Some(keccak256(&code)));
+        assert_eq!(account.code_post_state_with_hash(), Some((keccak256(&code), &code)));
+    }
+
+    #[test]
+    fn adopted_code_preserves_its_hash_without_supplying_bytes() {
+        let hash = B256::repeat_byte(0x42);
+        let mut account = AccountChanges::new(Address::ZERO)
+            .with_code_change(CodeChange::new(
+                BlockAccessIndex::new(0),
+                Bytes::from_static(&[0x60]),
+            ))
+            .with_code_change(CodeChange::new_hash(BlockAccessIndex::new(1), hash));
+        assert_eq!(account.code_post_state(), None);
+        assert_eq!(account.code_hash_post_state(), Some(hash));
+        assert_eq!(account.code_post_state_with_hash(), None);
+
+        let code = Bytes::from_static(&[0x60, 0x01]);
+        account.code_changes.push(CodeChange::new(BlockAccessIndex::new(2), code.clone()));
+        assert_eq!(account.code_post_state(), Some(&code));
         assert_eq!(account.code_hash_post_state(), Some(keccak256(&code)));
         assert_eq!(account.code_post_state_with_hash(), Some((keccak256(&code), &code)));
     }
