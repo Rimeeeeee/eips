@@ -2,6 +2,8 @@
 version = 2
 yanked = "warn"
 ignore = [
+    # https://rustsec.org/advisories/RUSTSEC-2026-0387
+    "RUSTSEC-2026-0387",
     # https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
     # bincode is unmaintained, only used in dev-dependencies for tests
