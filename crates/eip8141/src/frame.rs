@@ -24,6 +24,8 @@ pub enum FrameMode {
     ///
     /// [EIP-7906]: https://eips.ethereum.org/EIPS/eip-7906
     Assert = 3,
+    /// Declare EIP-8288 dependencies verified by the block's aggregate proof.
+    DependencyVerify = 4,
 }
 
 impl FrameMode {
@@ -54,6 +56,7 @@ impl FrameMode {
             1 => Some(Self::Verify),
             2 => Some(Self::Sender),
             3 => Some(Self::Assert),
+            4 => Some(Self::DependencyVerify),
             _ => None,
         }
     }

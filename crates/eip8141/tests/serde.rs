@@ -16,9 +16,15 @@ fn roundtrip<T: Serialize + DeserializeOwned + PartialEq + core::fmt::Debug>(val
 
 #[test]
 fn discriminants_use_quantities() {
-    for (i, mode) in [FrameMode::Default, FrameMode::Verify, FrameMode::Sender, FrameMode::Assert]
-        .into_iter()
-        .enumerate()
+    for (i, mode) in [
+        FrameMode::Default,
+        FrameMode::Verify,
+        FrameMode::Sender,
+        FrameMode::Assert,
+        FrameMode::DependencyVerify,
+    ]
+    .into_iter()
+    .enumerate()
     {
         assert_eq!(roundtrip(mode), json!(format!("0x{i:x}")));
     }
@@ -46,7 +52,7 @@ fn discriminants_use_quantities() {
     {
         assert_eq!(roundtrip(scope), json!(format!("0x{i:x}")));
     }
-    for value in [json!("0x4"), json!("0xff"), json!("0x100"), json!("Verify")] {
+    for value in [json!("0x5"), json!("0xff"), json!("0x100"), json!("Verify")] {
         assert!(serde_json::from_value::<FrameMode>(value.clone()).is_err());
         assert!(serde_json::from_value::<FrameStatus>(value.clone()).is_err());
         assert!(serde_json::from_value::<SignatureScheme>(value).is_err());
