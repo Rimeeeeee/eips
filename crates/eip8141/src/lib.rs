@@ -60,5 +60,3 @@ pub use receipt::*;
 
 mod signature;
 pub use signature::*;
-
-pub mod eip8288;
