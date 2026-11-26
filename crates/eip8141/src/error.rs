@@ -14,6 +14,9 @@ pub enum Eip8141Error {
     /// Unknown frame receipt status.
     #[error("invalid frame status: {0}")]
     InvalidStatus(u8),
+    /// A proof frame has an invalid field or is outside the leading proof prefix.
+    #[error("invalid proof frame: {0}")]
+    InvalidProof(&'static str),
     /// Unknown signature scheme.
     #[error("invalid signature scheme: {0}")]
     InvalidScheme(u8),

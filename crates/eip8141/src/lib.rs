@@ -1,30 +1,13 @@
-//! [EIP-8141] frame transaction constants and types, including the [EIP-7906] `ASSERT`
-//! frame mode.
+//! [EIP-8141] frame types, proof claims, and the [EIP-7906] assertion mode.
 //!
-//! Targets, signers, and signed messages are typed: [`FrameAddress`] distinguishes an omitted
-//! address from an explicit one and [`SignatureMessage`] distinguishes the canonical transaction
-//! hash from an explicit digest. Decoding rejects malformed lengths and the reserved zero digest
-//! but not the remaining signature constraints: call [`FrameSignature::validate_structure`] or
-//! [`FrameSignature::validate_structure_with_sender`] before cryptographic verification.
+//! PROOF frames carry an encoded key, message, and witness in their data. A zero message
+//! denotes the canonical transaction signing hash. [`ProofClaim`] borrows the witness;
+//! parsing a claim does not authenticate it. Validate the frame fields and leading proof
+//! prefix before executing a verifier, and trust a claim only after that call succeeds.
 //!
-//! The `serde` feature encodes protocol discriminants and gas counters as hex quantities, and
-//! optional addresses and signature messages as hex byte strings (empty values are `"0x"`).
-//!
-//! ```
-//! use alloy_eip8141::{FrameAddress, FrameSignature, SignatureMessage};
-//! use alloy_primitives::{Signature, U256};
-//!
-//! // Construct a structurally valid entry; the signature still needs cryptographic verification.
-//! let signature = Signature::new(U256::from(1), U256::from(2), false);
-//! let entry = FrameSignature::from_secp256k1(
-//!     FrameAddress::Empty,
-//!     SignatureMessage::TransactionHash,
-//!     signature,
-//! )?;
-//! assert!(entry.signs_transaction_hash());
-//! assert_eq!(entry.secp256k1_signature(), Some(signature));
-//! # Ok::<(), alloy_eip8141::Eip8141Error>(())
-//! ```
+//! Frame discriminants are decoded independently of fork activation. Consumers must select
+//! the active protocol before executing them. Legacy signature utilities remain available
+//! for older fixture formats; proof-frame transactions have no outer signature list.
 //!
 //! [EIP-7906]: https://eips.ethereum.org/EIPS/eip-7906
 //! [EIP-8141]: https://eips.ethereum.org/EIPS/eip-8141
@@ -60,3 +43,6 @@ pub use receipt::*;
 
 mod signature;
 pub use signature::*;
+
+mod proof;
+pub use proof::*;
