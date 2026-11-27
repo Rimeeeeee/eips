@@ -48,6 +48,17 @@ fn rlp_fixtures() {
 }
 
 #[test]
+fn dependency_verify_frame_rlp_fixture() {
+    let frame = Frame { mode: FrameMode::DependencyVerify, ..Default::default() };
+    let encoded = hex!("c8048080c280808080");
+    assert_eq!(alloy_rlp::encode(&frame), encoded);
+    assert_eq!(frame.length(), encoded.len());
+    let mut remaining = encoded.as_slice();
+    assert_eq!(Frame::decode(&mut remaining).unwrap(), frame);
+    assert!(remaining.is_empty());
+}
+
+#[test]
 fn optional_addresses_preserve_encoding_and_reject_invalid_lengths() {
     for address in [FrameAddress::Empty, Address::ZERO.into(), Address::repeat_byte(1).into()] {
         let raw = Bytes::copy_from_slice(address.as_bytes());
@@ -97,13 +108,14 @@ fn signature_messages_preserve_encoding_and_reject_invalid_values() {
 
 #[test]
 fn invalid_discriminants_and_noncanonical_rlp() {
-    for input in [&[4u8][..], &[0x81, 1][..], &[0xc0][..]] {
+    for input in [&[5u8][..], &[0x81, 1][..], &[0xc0][..]] {
         assert!(FrameMode::decode(&mut &*input).is_err());
         assert!(FrameStatus::decode(&mut &*input).is_err());
         assert!(SignatureScheme::decode(&mut &*input).is_err());
     }
     assert_eq!(FrameMode::try_from(3), Ok(FrameMode::Assert));
-    assert_eq!(FrameMode::try_from(4), Err(Eip8141Error::InvalidMode(4)));
+    assert_eq!(FrameMode::try_from(4), Ok(FrameMode::DependencyVerify));
+    assert_eq!(FrameMode::try_from(5), Err(Eip8141Error::InvalidMode(5)));
     assert_eq!(FrameStatus::try_from(3), Err(Eip8141Error::InvalidStatus(3)));
     assert_eq!(SignatureScheme::try_from(3), Err(Eip8141Error::InvalidScheme(3)));
     assert_eq!(ApprovalScope::try_from(4), Err(Eip8141Error::InvalidScope(4)));
@@ -236,6 +248,16 @@ fn p256_public_key_must_match_resolved_signer() {
     assert_eq!(entry.validate_structure_with_sender(sender), Ok(()));
     let secp = scalar_entry(SignatureScheme::Secp256k1, U256::from(1), U256::from(1));
     assert_eq!(secp.validate_structure_with_sender(sender), Ok(()));
+}
+
+#[cfg(feature = "borsh")]
+#[test]
+fn dependency_verify_frame_roundtrip_borsh() {
+    let mode = FrameMode::DependencyVerify;
+    assert_eq!(borsh::to_vec(&mode).unwrap(), [4]);
+    assert_eq!(borsh::from_slice::<FrameMode>(&[4]).unwrap(), mode);
+    let frame = Frame { mode, ..Default::default() };
+    assert_eq!(borsh::from_slice::<Frame>(&borsh::to_vec(&frame).unwrap()).unwrap(), frame);
 }
 
 #[cfg(feature = "borsh")]
