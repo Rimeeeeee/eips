@@ -1,4 +1,5 @@
 //! Signature lengths are committed without committing to circular witness bytes.
+
 use alloy_eip8141::{FrameSignature, SignatureMessage, SigningFrameSignatures};
 use alloy_primitives::{B256, hex};
 use alloy_rlp::Encodable;
@@ -25,6 +26,14 @@ fn witness_contents_are_elided_but_lengths_and_explicit_messages_are_bound() {
     let explicit = alloy_rlp::encode(sig.as_signing());
     sig.signature = vec![0; 66].into();
     assert_ne!(explicit, alloy_rlp::encode(sig.as_signing()));
+}
+
+#[test]
+fn elided_witnesses_are_priced_by_length() {
+    let mut sig = FrameSignature { signature: vec![0; 65].into(), ..Default::default() };
+    assert_eq!(sig.signature_tokens(), 65 * 4);
+    sig.msg = SignatureMessage::Explicit(B256::repeat_byte(1));
+    assert_eq!(sig.signature_tokens(), 65);
 }
 
 #[test]

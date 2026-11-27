@@ -42,8 +42,8 @@ impl FrameMode {
         matches!(self, Self::Sender)
     }
 
-    /// Returns true if this is an EIP-7906 post-transaction assertion frame.
-    pub const fn is_assertion(self) -> bool {
+    /// Returns true if this is [`Self::Assert`].
+    pub const fn is_assert(self) -> bool {
         matches!(self, Self::Assert)
     }
 
@@ -225,9 +225,9 @@ impl Frame {
         self.flags & crate::ATOMIC_BATCH_FLAG != 0
     }
 
-    /// Returns true if this is an EIP-7906 post-transaction assertion frame.
-    pub const fn is_assertion(&self) -> bool {
-        self.mode.is_assertion()
+    /// Returns true if this is an EIP-7906 `ASSERT` frame.
+    pub const fn is_assert(&self) -> bool {
+        self.mode.is_assert()
     }
 
     /// Returns true if any reserved flag bit is set, which makes the transaction invalid.
@@ -258,17 +258,7 @@ impl Frame {
 /// `ASSERT` frames at all. Once an `ASSERT` frame occurs, every following frame must also be
 /// `ASSERT`.
 pub fn has_valid_assertion_suffix(frames: &[Frame]) -> bool {
-    let mut saw_assertion = false;
-
-    for frame in frames {
-        if frame.is_assertion() {
-            saw_assertion = true;
-        } else if saw_assertion {
-            return false;
-        }
-    }
-
-    true
+    frames.iter().skip_while(|frame| !frame.is_assert()).all(Frame::is_assert)
 }
 
 /// Fee parameters carried by an EIP-8141 transaction.
@@ -374,8 +364,8 @@ mod tests {
     fn assertion_mode_encodes_as_eip7906_value() {
         assert_eq!(u8::from(FrameMode::Assert), 3);
         assert_eq!(FrameMode::try_from_u8(3), Some(FrameMode::Assert));
-        assert!(FrameMode::Assert.is_assertion());
-        assert!(!FrameMode::Sender.is_assertion());
+        assert!(FrameMode::Assert.is_assert());
+        assert!(!FrameMode::Sender.is_assert());
 
         let mut encoded = Vec::new();
         FrameMode::Assert.encode(&mut encoded);
