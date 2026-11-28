@@ -33,13 +33,46 @@ pub const FRAME_TX_TOTAL_COST_FLOOR_PER_TOKEN: u64 = 16;
 pub const ENTRY_POINT: Address = Address::new(hex!("00000000000000000000000000000000000000aa"));
 
 /// Address of the canonical expiry verifier, deployed as an ordinary contract.
-pub const EXPIRY_VERIFIER: Address = Address::new(hex!("81413f0cF12e9b6a49B1D0439E081c577D57FfFf"));
+pub const EXPIRY_VERIFIER: Address = Address::new(hex!("81413f0cf12e9b6a49b1d0439e081c577d57ffff"));
 
 /// Calldata length, in bytes, for expiry verifier frames.
 pub const EXPIRY_DATA_LENGTH: usize = 8;
 
 /// Maximum number of frames in a frame transaction.
 pub const MAX_FRAMES: usize = 64;
+
+/// Address of the EIP-8250 protocol-managed keyed nonce storage account.
+pub const NONCE_MANAGER: Address = Address::new(hex!("8250968c12e01a19d6f667b9b2f3b3a4d0e51cb7"));
+
+/// Runtime bytecode of the ordinary contract deployed at [`NONCE_MANAGER`].
+pub const NONCE_MANAGER_CODE: [u8; 5] = hex!("60006000fd");
+
+/// State gas charged when a keyed nonce storage slot is created for the first time.
+pub const KEYED_NONCE_FIRST_USE_STATE_GAS: u64 = 97_920;
+
+/// Execution gas charged per nonce key under EIP-8250.
+///
+/// EIP-8038's cold storage access (2,100) plus storage write (10,000), charged
+/// in both intrinsic gas and the calldata floor, independently of first-use state gas.
+pub const KEYED_NONCE_ACCESS_COST: u64 = 12_100;
+
+/// Exhausted EIP-8250 sequence value. Transactions must use a lower sequence.
+pub const MAX_NONCE_SEQ: u64 = u64::MAX;
+
+/// Maximum number of nonce keys selected by one frame transaction.
+pub const MAX_NONCE_KEYS: usize = 16;
+
+/// `TXPARAM` selector for the sender's account nonce in the transaction pre-state.
+pub const TXPARAM_LEGACY_NONCE: u8 = 0x0d;
+
+/// `TXPARAM` selector for the number of selected nonce keys.
+pub const TXPARAM_NONCE_KEY_COUNT: u8 = 0x0e;
+
+/// `TXPARAM` selector for the canonical hash of the selected nonce keys.
+pub const TXPARAM_NONCE_KEYS_HASH: u8 = 0x0f;
+
+/// `TXPARAM` selector for the first selected nonce key.
+pub const TXPARAM_NONCE_KEY_0: u8 = 0x10;
 
 /// Order of the secp256k1 curve used by EIP-8141 signatures.
 pub const SECP256K1N: U256 =
@@ -56,7 +89,7 @@ pub const SECP256K1_SIGNATURE_LENGTH: usize = 65;
 pub const P256_SIGNATURE_LENGTH: usize = 128;
 
 /// Maximum validation work for public mempool admission.
-pub const MAX_VERIFY_GAS: u64 = 300_000;
+pub const MAX_VERIFY_GAS: u64 = 100_000;
 
 /// Maximum state gas budget across a public-mempool validation prefix.
 pub const MAX_VERIFY_STATE_GAS: u64 = 500_000;
@@ -74,5 +107,34 @@ pub const APPROVE_SCOPE_MASK: u8 = 0x03;
 /// Atomic batch frame flag.
 pub const ATOMIC_BATCH_FLAG: u8 = 0x04;
 
-/// Mask of all currently defined frame flag bits.
+/// Mask of flag bits permitted on ordinary, non-proof frames.
 pub const FRAME_FLAGS_MASK: u8 = APPROVE_SCOPE_MASK | ATOMIC_BATCH_FLAG;
+
+/// Commit to a proof's digest in the canonical signing hash.
+pub const PROOF_COMMIT_FLAG: u8 = 0x08;
+
+/// Allow VERIFY frames to read a proof frame's encoded data.
+pub const PROOF_READ_FLAG: u8 = 0x10;
+
+/// Flags permitted on PROOF frames.
+pub const PROOF_FLAGS_MASK: u8 = PROOF_COMMIT_FLAG | PROOF_READ_FLAG;
+
+/// Byte length of the key and encoded message preceding a proof.
+pub const PROOF_CLAIM_LENGTH: usize = 64;
+
+/// Byte length of a leanSPHINCS public key.
+pub const LEANSPHINCS_PUBLIC_KEY_LENGTH: usize = 32;
+
+/// Byte length of a leanSPHINCS signature at the draft's pinned EthLib revision.
+pub const LEANSPHINCS_SIGNATURE_LENGTH: usize = 7_740;
+
+/// Provisional Bogotá Devnet 3 address; the draft leaves verifier assignments TBD.
+pub const SECP256K1_VERIFIER: Address =
+    Address::new(hex!("0000000000000000000000000000000000000012"));
+
+/// Provisional Bogotá Devnet 3 address; the draft leaves verifier assignments TBD.
+pub const P256_VERIFIER: Address = Address::new(hex!("0000000000000000000000000000000000000013"));
+
+/// Provisional Bogotá Devnet 3 address; the draft leaves verifier assignments TBD.
+pub const LEANSPHINCS_VERIFIER: Address =
+    Address::new(hex!("0000000000000000000000000000000000000014"));

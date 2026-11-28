@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, Bytes, U256};
-use alloy_rlp::{RlpDecodable, RlpEncodable};
+use alloy_rlp::{Decodable, Header, RlpDecodable, RlpEncodable};
 
 use crate::FrameAddress;
 
@@ -24,6 +24,8 @@ pub enum FrameMode {
     ///
     /// [EIP-7906]: https://eips.ethereum.org/EIPS/eip-7906
     Assert = 3,
+    /// Prove a claim in a pure verifier context before all other frames.
+    Proof = 4,
 }
 
 impl FrameMode {
@@ -47,6 +49,11 @@ impl FrameMode {
         matches!(self, Self::Assert)
     }
 
+    /// Returns true if this is [`Self::Proof`].
+    pub const fn is_proof(self) -> bool {
+        matches!(self, Self::Proof)
+    }
+
     /// Attempts to convert a raw mode byte into a [`FrameMode`].
     pub const fn try_from_u8(value: u8) -> Option<Self> {
         match value {
@@ -54,6 +61,7 @@ impl FrameMode {
             1 => Some(Self::Verify),
             2 => Some(Self::Sender),
             3 => Some(Self::Assert),
+            4 => Some(Self::Proof),
             _ => None,
         }
     }
@@ -127,7 +135,7 @@ impl ApprovalScope {
 impl_u8_discriminant!(ApprovalScope, InvalidScope);
 
 /// The independent execution and state gas budgets carried by an EIP-8141 frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable, RlpDecodable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -141,6 +149,30 @@ pub struct FrameLimits {
     pub state: u64,
 }
 
+impl Decodable for FrameLimits {
+    fn decode(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
+        let mut fields = Header::decode_bytes(buf, true)?;
+        let payload_length = fields.len();
+        let limits = Self {
+            execution: decode_bounded_integer(
+                &mut fields,
+                "invalid EIP-8141 frame format: execution gas exceeds 64 bits",
+            )?,
+            state: decode_bounded_integer(
+                &mut fields,
+                "invalid EIP-8141 frame format: state gas exceeds 64 bits",
+            )?,
+        };
+        if !fields.is_empty() {
+            return Err(alloy_rlp::Error::ListLengthMismatch {
+                expected: payload_length,
+                got: payload_length - fields.len(),
+            });
+        }
+        Ok(limits)
+    }
+}
+
 /// A single EIP-8141 transaction frame.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, RlpEncodable, RlpDecodable)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -150,7 +182,7 @@ pub struct FrameLimits {
 pub struct Frame {
     /// The frame execution mode.
     pub mode: FrameMode,
-    /// Frame flags. Bits 0-1 encode approval scope, bit 2 encodes atomic batching.
+    /// Approval and atomic flags for ordinary frames, or proof commitment and readability flags.
     #[cfg_attr(feature = "serde", serde(with = "crate::serde_utils::quantity_u8"))]
     pub flags: u8,
     /// Target account. An empty address resolves to the transaction sender.
@@ -208,7 +240,44 @@ impl Frame {
 
     /// Returns true if any reserved flag bit is set, which makes the transaction invalid.
     pub const fn has_reserved_flags(&self) -> bool {
-        self.flags & !crate::FRAME_FLAGS_MASK != 0
+        let mask =
+            if self.mode.is_proof() { crate::PROOF_FLAGS_MASK } else { crate::FRAME_FLAGS_MASK };
+        self.flags & !mask != 0
+    }
+
+    /// Returns the encoded claim and borrowed proof, or `None` for a non-proof or short data.
+    ///
+    /// This only parses the data. Call [`Self::validate_proof_fields`] to validate its fields.
+    pub fn proof(&self) -> Option<crate::ProofClaim<'_>> {
+        if !self.mode.is_proof() {
+            return None;
+        }
+        crate::ProofClaim::parse(&self.data)
+    }
+
+    /// Validates proof-specific fields without executing the verifier.
+    ///
+    /// Non-proof frames are rejected. Ordering is checked separately by
+    /// [`crate::validate_proof_prefix`].
+    pub fn validate_proof_fields(&self) -> Result<(), crate::Eip8141Error> {
+        let claim = self.proof().ok_or(crate::Eip8141Error::InvalidProof(
+            "expected mode PROOF and at least 64 data bytes",
+        ))?;
+        if self.has_reserved_flags() {
+            return Err(crate::Eip8141Error::InvalidProof("flags are not valid for PROOF"));
+        }
+        if !self.value.is_zero() || self.limits.state != 0 {
+            return Err(crate::Eip8141Error::InvalidProof("value and state gas must be zero"));
+        }
+        if claim.key.is_zero() {
+            return Err(crate::Eip8141Error::InvalidProof("key must be nonzero"));
+        }
+        if self.flags & crate::PROOF_COMMIT_FLAG != 0 && claim.msg.is_zero() {
+            return Err(crate::Eip8141Error::InvalidProof(
+                "committed proof requires an explicit message",
+            ));
+        }
+        Ok(())
     }
 
     /// Returns true if this frame is an expiry verifier frame.
@@ -238,7 +307,7 @@ pub fn has_valid_assertion_suffix(frames: &[Frame]) -> bool {
 }
 
 /// Fee parameters carried by an EIP-8141 transaction.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable, RlpDecodable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, RlpEncodable)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -250,10 +319,42 @@ pub struct TransactionFees {
     pub max_priority_fee_per_gas: U256,
 }
 
+impl Decodable for TransactionFees {
+    fn decode(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
+        let mut fields = Header::decode_bytes(buf, true)?;
+        let payload_length = fields.len();
+        let fees = Self {
+            max_fee: decode_bounded_integer(&mut fields, "EIP-8141 max fee exceeds 256 bits")?,
+            max_priority_fee_per_gas: decode_bounded_integer(
+                &mut fields,
+                "EIP-8141 max priority fee per gas exceeds 256 bits",
+            )?,
+        };
+        if !fields.is_empty() {
+            return Err(alloy_rlp::Error::ListLengthMismatch {
+                expected: payload_length,
+                got: payload_length - fields.len(),
+            });
+        }
+        Ok(fees)
+    }
+}
+
+fn decode_bounded_integer<T: Decodable>(
+    buf: &mut &[u8],
+    exceeds_bound: &'static str,
+) -> alloy_rlp::Result<T> {
+    T::decode(buf).map_err(|err| match err {
+        alloy_rlp::Error::Overflow => alloy_rlp::Error::Custom(exceeds_bound),
+        other => other,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Frame, FrameMode, has_valid_assertion_suffix};
     use alloy_primitives::{Bytes, U256, address};
+    use alloy_rlp::{Decodable, Encodable};
 
     #[test]
     fn approval_permissions_from_frame_flags() {
@@ -305,15 +406,31 @@ mod tests {
     }
 
     #[test]
+    fn assertion_mode_encodes_as_eip7906_value() {
+        assert_eq!(u8::from(FrameMode::Assert), 3);
+        assert_eq!(FrameMode::try_from_u8(3), Some(FrameMode::Assert));
+        assert!(FrameMode::Assert.is_assert());
+        assert!(!FrameMode::Sender.is_assert());
+
+        let mut encoded = Vec::new();
+        FrameMode::Assert.encode(&mut encoded);
+        assert_eq!(encoded, [3]);
+        assert_eq!(FrameMode::decode(&mut encoded.as_slice()), Ok(FrameMode::Assert));
+    }
+
+    #[test]
     fn assertion_frames_must_be_a_trailing_suffix() {
-        let assertion = || Frame { mode: FrameMode::Assert, ..Default::default() };
-        let ordinary = Frame::default;
+        let assertion = Frame { mode: FrameMode::Assert, ..Default::default() };
+        let ordinary = Frame::default();
 
         assert!(has_valid_assertion_suffix(&[]));
-        assert!(has_valid_assertion_suffix(&[ordinary()]));
-        assert!(has_valid_assertion_suffix(&[assertion()]));
-        assert!(has_valid_assertion_suffix(&[ordinary(), assertion(), assertion()]));
-        assert!(!has_valid_assertion_suffix(&[assertion(), ordinary()]));
-        assert!(!has_valid_assertion_suffix(&[ordinary(), assertion(), ordinary()]));
+        assert!(has_valid_assertion_suffix(&[
+            ordinary.clone(),
+            assertion.clone(),
+            assertion.clone()
+        ]));
+        assert!(has_valid_assertion_suffix(core::slice::from_ref(&assertion)));
+        assert!(!has_valid_assertion_suffix(&[assertion.clone(), ordinary.clone()]));
+        assert!(!has_valid_assertion_suffix(&[ordinary, assertion, Frame::default()]));
     }
 }
