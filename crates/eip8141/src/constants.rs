@@ -33,13 +33,46 @@ pub const FRAME_TX_TOTAL_COST_FLOOR_PER_TOKEN: u64 = 16;
 pub const ENTRY_POINT: Address = Address::new(hex!("00000000000000000000000000000000000000aa"));
 
 /// Address of the canonical expiry verifier, deployed as an ordinary contract.
-pub const EXPIRY_VERIFIER: Address = Address::new(hex!("81413f0cF12e9b6a49B1D0439E081c577D57FfFf"));
+pub const EXPIRY_VERIFIER: Address = Address::new(hex!("81413f0cf12e9b6a49b1d0439e081c577d57ffff"));
 
 /// Calldata length, in bytes, for expiry verifier frames.
 pub const EXPIRY_DATA_LENGTH: usize = 8;
 
 /// Maximum number of frames in a frame transaction.
 pub const MAX_FRAMES: usize = 64;
+
+/// Address of the EIP-8250 protocol-managed keyed nonce storage account.
+pub const NONCE_MANAGER: Address = Address::new(hex!("8250968c12e01a19d6f667b9b2f3b3a4d0e51cb7"));
+
+/// Runtime bytecode of the ordinary contract deployed at [`NONCE_MANAGER`].
+pub const NONCE_MANAGER_CODE: [u8; 5] = hex!("60006000fd");
+
+/// State gas charged when a keyed nonce storage slot is created for the first time.
+pub const KEYED_NONCE_FIRST_USE_STATE_GAS: u64 = 97_920;
+
+/// Execution gas charged per nonce key under EIP-8250.
+///
+/// EIP-8038's cold storage access (2,100) plus storage write (10,000), charged
+/// in both intrinsic gas and the calldata floor, independently of first-use state gas.
+pub const KEYED_NONCE_ACCESS_COST: u64 = 12_100;
+
+/// Exhausted EIP-8250 sequence value. Transactions must use a lower sequence.
+pub const MAX_NONCE_SEQ: u64 = u64::MAX;
+
+/// Maximum number of nonce keys selected by one frame transaction.
+pub const MAX_NONCE_KEYS: usize = 16;
+
+/// `TXPARAM` selector for the sender's account nonce in the transaction pre-state.
+pub const TXPARAM_LEGACY_NONCE: u8 = 0x0d;
+
+/// `TXPARAM` selector for the number of selected nonce keys.
+pub const TXPARAM_NONCE_KEY_COUNT: u8 = 0x0e;
+
+/// `TXPARAM` selector for the canonical hash of the selected nonce keys.
+pub const TXPARAM_NONCE_KEYS_HASH: u8 = 0x0f;
+
+/// `TXPARAM` selector for the first selected nonce key.
+pub const TXPARAM_NONCE_KEY_0: u8 = 0x10;
 
 /// Order of the secp256k1 curve used by EIP-8141 signatures.
 pub const SECP256K1N: U256 =

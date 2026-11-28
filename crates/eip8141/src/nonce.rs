@@ -1,0 +1,102 @@
+//! EIP-8250 keyed nonce domains.
+
+use alloc::vec::Vec;
+use alloy_primitives::{Address, B256, U256, keccak256};
+use alloy_rlp::Encodable;
+
+use crate::MAX_NONCE_KEYS;
+
+/// Validates the canonical set of nonce keys, where an empty set selects the legacy account nonce.
+pub fn validate_nonce_keys(keys: &[U256]) -> Result<(), &'static str> {
+    if keys.len() > MAX_NONCE_KEYS {
+        return Err("EIP-8250 requires at most 16 nonce keys");
+    }
+    if keys.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err("EIP-8250 nonce keys must be strictly increasing");
+    }
+    Ok(())
+}
+
+/// Returns the storage slot for a sender's nonce key.
+pub fn nonce_slot(sender: Address, key: U256) -> U256 {
+    let mut input = [0u8; 64];
+    input[12..32].copy_from_slice(sender.as_slice());
+    input[32..].copy_from_slice(&key.to_be_bytes::<32>());
+    U256::from_be_bytes(keccak256(input).0)
+}
+
+/// Returns the keyed nonce storage slot as a hash.
+pub fn nonce_manager_slot(sender: Address, key: U256) -> B256 {
+    B256::from(nonce_slot(sender, key).to_be_bytes::<32>())
+}
+
+/// Hashes the key count followed by each key as a 32-byte big-endian integer.
+pub fn nonce_keys_hash(keys: &[U256]) -> B256 {
+    let mut input = Vec::with_capacity(32 * (keys.len() + 1));
+    input.extend_from_slice(&U256::from(keys.len()).to_be_bytes::<32>());
+    for key in keys {
+        input.extend_from_slice(&key.to_be_bytes::<32>());
+    }
+    keccak256(input)
+}
+
+/// Encodes the nonce fields charged as transaction calldata by EIP-8250.
+pub fn nonce_calldata(keys: &[U256], nonce: u64) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    alloy_rlp::encode_list(keys, &mut encoded);
+    if keys.is_empty() || nonce != crate::MAX_NONCE_SEQ {
+        nonce.encode(&mut encoded);
+    }
+    encoded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::address;
+
+    #[test]
+    fn canonical_nonce_sets() {
+        for keys in [vec![], vec![U256::ZERO], vec![U256::MAX], (1..=16).map(U256::from).collect()]
+        {
+            assert!(validate_nonce_keys(&keys).is_ok());
+        }
+        for keys in [
+            vec![U256::from(1), U256::from(1)],
+            vec![U256::from(2), U256::from(1)],
+            vec![U256::from(1), U256::ZERO],
+            (1..=17).map(U256::from).collect(),
+        ] {
+            assert!(validate_nonce_keys(&keys).is_err());
+        }
+    }
+
+    #[test]
+    fn nonce_storage_and_key_hash_vectors() {
+        assert_eq!(
+            nonce_slot(address!("1000000000000000000000000000000000000001"), U256::from(1)),
+            U256::from_be_bytes(
+                alloy_primitives::b256!(
+                    "37ec0b1050d5648531786bee10ede961dc48178860178bce6a4d18fd11678018"
+                )
+                .0
+            )
+        );
+        assert_eq!(
+            nonce_keys_hash(&[U256::from(1)]),
+            alloy_primitives::b256!(
+                "cc69885fda6bcc1a4ace058b4a62bf5e179ea78fd58a1ccd71c22cc9b688792f"
+            )
+        );
+    }
+
+    #[test]
+    fn canonical_nonce_calldata() {
+        assert_eq!(nonce_calldata(&[U256::ZERO], 0), [0xc1, 0x80, 0x80]);
+        assert_eq!(
+            nonce_calldata(&[U256::from(1), U256::from(128)], 128),
+            [0xc3, 0x01, 0x81, 0x80, 0x81, 0x80]
+        );
+        assert_eq!(nonce_calldata(&[U256::from(1)], u64::MAX), [0xc1, 0x01]);
+    }
+}
